@@ -12,9 +12,9 @@ config_parser.read(CONFIG_PATH)
 session = None
 logger = logging.getLogger("Compaction-Monitor-Visualization")
 start_time = int(
-    time.mktime(time.strptime(config_parser.get("Visualize", "StartDate"), '%Y-%m-%d')) * 1000)
+    time.mktime(time.strptime(config_parser.get("Visualize", "StartDate"), '%Y-%m-%d %H:%M:%S')) * 1000)
 end_time = int(
-    time.mktime(time.strptime(config_parser.get("Visualize", "EndDate"), '%Y-%m-%d')) * 1000)
+    time.mktime(time.strptime(config_parser.get("Visualize", "EndDate"), '%Y-%m-%d %H:%M:%S')) * 1000)
 
 
 def init_session():
@@ -65,14 +65,15 @@ def collect_cpu_timeseries_name():
     return compaction_cpu_threads_name, merge_cpu_threads_name
 
 
-def collect_cpu_cost(compaction_timeseries_name):
-    compaction_cpu_sql = "select * from root.compaction_monitor.compaction.cpu"
-    dataset = session.execute_query_statement(compaction_cpu_sql)
+def collect_cpu_cost(timeseries_name, is_compaction):
+    cpu_sql = "select * from root.compaction_monitor.compaction.cpu" if is_compaction else "select * from root.compaction_monitor.merge.cpu"
+    dataset = session.execute_query_statement(cpu_sql)
     compaction_cpu_consumption = {}
     timestamps = []
     compaction_cpu_index_map = {}
     column_names = dataset.get_column_names()
-    compaction_cpu_consumption["Compaction-Total"] = []
+    total_key = "Compaction-Total" if is_compaction else "Merge-Total"
+    compaction_cpu_consumption[total_key] = []
     for i in range(1, len(column_names)):
         compaction_cpu_consumption[column_names[i]] = []
         compaction_cpu_index_map[column_names[i]] = i - 1
@@ -81,16 +82,16 @@ def collect_cpu_cost(compaction_timeseries_name):
         while dataset.has_next():
             row = dataset.next()
             s = 0
-            cur_time = row.get_timestamp()
+            row.get_timestamp()
             if row.get_timestamp() < start_time:
                 continue
             elif row.get_timestamp() > end_time:
                 return timestamps, compaction_cpu_consumption
-            for ts_name in compaction_timeseries_name:
+            for ts_name in timeseries_name:
                 compaction_cpu_consumption[ts_name].append(
                     row.get_fields()[compaction_cpu_index_map[ts_name]].get_float_value() * 100)
                 s += row.get_fields()[compaction_cpu_index_map[ts_name]].get_float_value() * 100
-            compaction_cpu_consumption["Compaction-Total"].append(s)
+            compaction_cpu_consumption[total_key].append(s)
             timestamps.append(row.get_timestamp())
 
         return timestamps, compaction_cpu_consumption
@@ -103,17 +104,35 @@ def process_timestamp(timestamps):
 
 
 def visualize_cpu():
+    """ Visualize cpu usage"""
     compaction_timeseries_name, merge_timeseries_name = collect_cpu_timeseries_name()
-    timestamps, compaction_cpu_consumption = collect_cpu_cost(compaction_timeseries_name)
+    plt.subplot(1, 2, 1)
+    timestamps, compaction_cpu_consumption = collect_cpu_cost(compaction_timeseries_name, True)
     timestamps = process_timestamp(timestamps)
     for ts_name in compaction_timeseries_name:
         consumption = compaction_cpu_consumption[ts_name]
         plt.plot(timestamps, consumption, label=ts_name.split(".")[-1])
     consumption = compaction_cpu_consumption["Compaction-Total"]
     plt.plot(timestamps, consumption, label="Compaction-Total", marker="+")
+    plt.ylim((0, 110))
     plt.xlabel("time")
     plt.ylabel("CPU consumption in percentage")
     plt.title("Compaction CPU Consumption")
+    plt.legend()
+    plt.grid()
+
+    plt.subplot(1, 2, 2)
+    timestamps, merge_cpu_consumption = collect_cpu_cost(merge_timeseries_name, False)
+    timestamps = process_timestamp(timestamps)
+    for ts_name in merge_timeseries_name:
+        consumption = merge_cpu_consumption[ts_name]
+        plt.plot(timestamps, consumption, label=ts_name.split(".")[-1])
+    consumption = merge_cpu_consumption["Merge-Total"]
+    plt.plot(timestamps, consumption, label="Merge-Total", marker="+")
+    plt.ylim((0, 110))
+    plt.xlabel("time")
+    plt.ylabel("CPU consumption in percentage")
+    plt.title("Merge CPU Consumption")
     plt.legend()
     plt.grid()
     plt.show()
