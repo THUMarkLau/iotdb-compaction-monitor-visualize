@@ -1,5 +1,6 @@
 import configparser
 import logging
+import time
 from datetime import datetime
 
 import matplotlib.pyplot as plt
@@ -10,6 +11,10 @@ config_parser = configparser.ConfigParser()
 config_parser.read(CONFIG_PATH)
 session = None
 logger = logging.getLogger("Compaction-Monitor-Visualization")
+start_time = int(
+    time.mktime(time.strptime(config_parser.get("Visualize", "StartDate"), '%Y-%m-%d')) * 1000)
+end_time = int(
+    time.mktime(time.strptime(config_parser.get("Visualize", "EndDate"), '%Y-%m-%d')) * 1000)
 
 
 def init_session():
@@ -71,23 +76,26 @@ def collect_cpu_cost(compaction_timeseries_name):
     for i in range(1, len(column_names)):
         compaction_cpu_consumption[column_names[i]] = []
         compaction_cpu_index_map[column_names[i]] = i - 1
-    init = True
 
-    while dataset.has_next():
-        row = dataset.next()
-        s = 0
-        if init:
-            init = False
-            continue
-        for ts_name in compaction_timeseries_name:
-            compaction_cpu_consumption[ts_name].append(
-                row.get_fields()[compaction_cpu_index_map[ts_name]].get_float_value() * 100)
-            s += row.get_fields()[compaction_cpu_index_map[ts_name]].get_float_value() * 100
-        compaction_cpu_consumption["Compaction-Total"].append(s)
-        timestamps.append(row.get_timestamp())
+    try:
+        while dataset.has_next():
+            row = dataset.next()
+            s = 0
+            cur_time = row.get_timestamp()
+            if row.get_timestamp() < start_time:
+                continue
+            elif row.get_timestamp() > end_time:
+                return timestamps, compaction_cpu_consumption
+            for ts_name in compaction_timeseries_name:
+                compaction_cpu_consumption[ts_name].append(
+                    row.get_fields()[compaction_cpu_index_map[ts_name]].get_float_value() * 100)
+                s += row.get_fields()[compaction_cpu_index_map[ts_name]].get_float_value() * 100
+            compaction_cpu_consumption["Compaction-Total"].append(s)
+            timestamps.append(row.get_timestamp())
 
-    dataset.close_operation_handle()
-    return timestamps, compaction_cpu_consumption
+        return timestamps, compaction_cpu_consumption
+    finally:
+        dataset.close_operation_handle()
 
 
 def process_timestamp(timestamps):
