@@ -1,5 +1,6 @@
 import configparser
 import logging
+from datetime import datetime
 
 import matplotlib.pyplot as plt
 from iotdb.Session import Session
@@ -90,7 +91,7 @@ def collect_cpu_cost(compaction_timeseries_name):
 
 
 def process_timestamp(timestamps):
-    return list(map(lambda x: (x - timestamps[0]) / 1000 / 60, timestamps))
+    return list(map(lambda ts: datetime.fromtimestamp(ts / 1000), timestamps))
 
 
 def visualize_cpu():
@@ -102,7 +103,7 @@ def visualize_cpu():
         plt.plot(timestamps, consumption, label=ts_name.split(".")[-1])
     consumption = compaction_cpu_consumption["Compaction-Total"]
     plt.plot(timestamps, consumption, label="Compaction-Total", marker="+")
-    plt.xlabel("min")
+    plt.xlabel("time")
     plt.ylabel("CPU consumption in percentage")
     plt.title("Compaction CPU Consumption")
     plt.legend()
